@@ -1,0 +1,587 @@
+%% Read the data and intial set up
+Y=table2array(readtable("Term_structure_data.csv"));
+Y=Y(:,2:end);
+[T,n]=size(Y);
+y=reshape(Y,n*T,1);
+%% Setting the draw
+nsim = 5000; burnin = 1250;
+z_draw = zeros(nsim,2);
+a2_draw = zeros(nsim,1);
+b2_draw = zeros(nsim,1);
+Sig_draw = zeros(nsim,4,4);
+sigr2_draw = zeros(nsim,1);
+r0_draw = zeros(nsim,1);
+K=zeros(nsim,T);
+%% Setting for the Adaptive MH
+ amh_b2 = zeros(nsim+burnin,1);
+ amh_sigr2 = zeros(nsim+burnin,1);
+ amh_b2(1)=0.01;
+ amh_sigr2(1)=0.01;
+ f = zeros(nsim,1);
+ g=zeros(nsim,1);
+
+%% Setting the prior
+z0 = zeros(2,1); iV0 = eye(2)/100; % z = (a1,b1)
+m2a = 0; sigma2a_2 = 10; %  a2
+m2b = 0; sigma2b_2 = 10; %  b2
+nu0 = (n+3); S0 = eye(n);% Sigma
+nur = 3; Sr = 1 *(nur-1); %sigma_r^2
+c0 = 0; d0_2 = 10; %r0
+
+
+
+%% Intitialize the Markov Chain
+%% State space equation
+a1 = 0.0518; b1 = 0.1036;
+z=[a1 b1];
+sigr2 = 0.1145^2;
+r0 = 0.1; %r0
+
+%% Yield equation
+a2 = 0.0518; %a2 (from assumption)
+b2 = 0.0529; %b2 (from assumption)
+tau = [1/12 3/12 6/12 1]';
+B = 0.2 * ones(4,4);
+B(1:5:end) = 1;
+
+D=[0.2 0.3 0.4 0.5];
+D=diag(D);
+
+Sigma = D*B*D;
+iSigma = Sigma\speye(n);
+%% Compute few things for the state equation
+n1 =1-z(2);
+H = speye(T)-sparse(2:T,1:(T-1),n1*ones(1,T-1),T,T);
+HH = H'*H;
+iH = H\speye(T);
+A = (n1.^(1:T))';
+
+
+%% MCMC
+for i=1:nsim+burnin
+    %% Sample r
+    beta = reshape((exp(-b2 .* tau)-1)/b2,n,1);
+    alpha = reshape(0.5*(sigr2/b2^2 -a2/b2)*(tau-beta) -...
+        (sigr2/(4*b2))* beta.^2,n,1);
+    n1 =1-z(2);
+    H = speye(T) - sparse(2:T,1:(T-1),n1*ones(1,T-1),T,T);
+    iH = H\speye(T);
+    HH = H'*H;
+    A = (n1.^(1:T))';
+    Vr = kron(eye(T),beta'*iSigma*beta) + HH/(sigr2);
+    w2 = kron(eye(T),beta'*iSigma)*y-kron(ones(T,1),beta'*iSigma*alpha)+...
+        HH*(z(1)*iH*ones(T,1) + A*r0);
+    r_hat = ((Vr\w2));
+    r = r_hat + chol(Vr,'lower')'\randn(T,1);
+     %Ensure r is greater than zero
+    r(r < 0) = abs(r(r < 0));
+    
+    %% Sample z
+    dr = [r(1)-r0;diff(r)];
+    r1 =[r0;r(1:end-1)];
+    tilde_r = [ones(T,1) -r1];
+    Kz = iV0 + (tilde_r'*tilde_r)/(sigr2);
+    z_hat = Kz\(iV0*z0 + (tilde_r'*dr)/(sigr2));
+    z =  z_hat + chol(Kz,'lower')'\randn(2,1);
+
+    %% Sample a2
+    beta = reshape((exp(-b2 .* tau)-1)/b2,n,1);
+    g1 = (tau-beta)/b2;
+    h1 = (sigr2/(4*b2))*(2*g1 - beta.^2);
+    u1 = 0.25*(T*g1'*iSigma*h1+T*h1'*iSigma*g1 + ...
+        kron(ones(1,T),g1'*iSigma*beta)*r-...
+        kron(ones(1,T), g1'*iSigma)*y);
+    u2 = 0.25*(r'*kron(ones(T,1),beta'*iSigma*g1)-...
+        y'*kron(ones(T,1),iSigma*g1));
+    Da2 = (0.25*T*g1'*iSigma*g1 + 1/(sigma2a_2))^(-1);
+    a2_hat = Da2*(u1+u2+(m2a/sigma2a_2));
+    a2 = a2_hat + sqrt(Da2)*randn(1,1);
+
+    %% Sample Sigma
+    beta = reshape((exp(-b2 .* tau)-1)/b2,n,1);
+    alpha = reshape(0.5*(sigr2/b2^2 -a2/b2)*(tau-beta) -...
+        (sigr2/(4*b2))* beta.^2,n,1);
+    e = reshape((y-kron(ones(T,1),alpha) -kron(eye(T), beta) * r),n,T);
+    Sigma = iwishrnd(S0 + e*e',nu0 + T);
+    iSigma = Sigma\speye(n);
+    %% Sample b2
+    beta = @(b2) reshape((exp(-b2 .* tau)-1)/b2,n,1);
+    alpha = @(b2) reshape(0.5*(sigr2/b2^2 -a2/b2)*(tau-beta(b2)) -...
+        (sigr2/(4*b2))* beta(b2).^2,n,1);
+    % Calculate log-likelihood term
+    ll_b2 =@(b2) (-0.5 * (y - kron(ones(T, 1), alpha(b2)) - kron(eye(T), beta(b2)) * r)'...
+    * kron(eye(T), iSigma) * (y - kron(ones(T, 1), alpha(b2)) -...
+    kron(eye(T), beta(b2)) * r));
+
+    % Calculate log-prior term
+    prior_b2 =@(b2) (-0.5 / sigma2b_2) * (b2 - m2b)^2;
+    mh_b2 =@(b2) ll_b2(b2) + prior_b2(b2);
+    %Draw from a proposal
+    b2_prp = normrnd(b2, amh_b2(i));
+    lalp_b2 = mh_b2(b2_prp) - mh_b2(b2);
+    if exp(lalp_b2) > rand
+        b2 = b2_prp;
+        amh_b2(i+1) = amh_b2(i) + amh_b2(i) / (4.4 * i);
+        f(i)=1;
+    else
+        if i ~= nsim+burnin
+            amh_b2(i+1) = amh_b2(i);
+        else
+            amh_b2(i+1) = amh_b2(i) - amh_b2(i) / ((10 - 4.4) * i);
+            f(i)=0;
+        end
+    end
+
+    %% Sample sigr2 
+    beta = reshape((exp(-b2 .* tau)-1)/b2,n,1);
+    alpha = @(sigr2) reshape(0.5*(sigr2/b2^2 -a2/b2)*(tau-beta) -...
+        (sigr2/(4*b2))* beta.^2,n,1);
+    ll_sigr2 = @(sigr2) (-0.5 * (y - kron(ones(T, 1), alpha(sigr2)) - kron(eye(T), beta) * r)'...
+    * kron(eye(T), iSigma) * (y - kron(ones(T, 1), alpha(sigr2)) -...
+    kron(eye(T), beta) * r));
+    ll_r = @(sigr2) -0.5*log(sigr2)+ (-0.5/sigr2)*(r-z(1)*iH*ones(T,1)-A*r0)'*HH*...
+        (r-z(1)*iH*ones(T,1)-A*r0);
+    prior_sigr = @(sigr2) ((sigr2)^-(nur+1)) * exp(-Sr/(sigr2));
+    mh_sigr2 = @(sigr2) ll_sigr2(sigr2) + ll_r(sigr2) +...
+        prior_sigr(sigr2);
+
+    % Draw from a proposal
+    trunc = makedist('Normal', sigr2, amh_sigr2(i));
+    trunc = truncate(trunc, 0, Inf);
+    sigr2_prp = random(trunc,1);
+    lalp_sigr2 = mh_sigr2(sigr2_prp) - mh_sigr2(sigr2);
+    if exp(lalp_sigr2) > rand
+        sigr2 = sigr2_prp;
+        amh_sigr2(i+1) = amh_sigr2(i) + amh_sigr2(i) / (4.4 * i);
+        g(i)=1;
+    else
+        if i ~= nsim+burnin
+            amh_sigr2(i+1) = amh_sigr2(i);
+        else
+            amh_sigr2(i+1) = amh_sigr2(i) - amh_sigr2(i) / ((10 - 4.4) * i);
+            g(i)=0;
+        end
+    end
+
+    %% Sample r0
+    n1 =1-z(2);
+    Vr0 = ((n1^2)/sigr2 + 1/d0_2)^(-1);
+    r0_hat = Vr0*((n1*(r(1)-z(1))/sigr2 +2*c0/d0_2));
+    r0 = r0_hat + sqrt(Vr0)*randn(1,1);
+    if r0 <= 0
+    r0 = abs(r0);
+    end
+    % store the parameters
+    if i > burnin
+        isave = i - burnin;
+        K(isave,:)=r;
+        z_draw(isave,:) = z;
+        a2_draw(isave,:) = a2;
+        b2_draw(isave,:)=b2;
+        Sig_draw(isave,:,:) = Sigma;
+        sigr2_draw(isave,:) = sigr2;
+        r0_draw(isave,:) = r0;
+    end
+    waitbar(i/(nsim+burnin))
+end
+
+%% Create a table and draw a graph
+%% State Equation
+% Mean
+a1_h = mean(z_draw(:,1));b1_h = mean(z_draw(:,2));
+a2_h = mean(a2_draw); b2_h = mean(b2_draw);
+sigr2_h = mean(sigr2_draw);
+
+% Standard Deviation 
+a1_sd = std(z_draw(:,1));b1_sd = std(z_draw(:,2));
+a2_sd = std(a2_draw); b2_sd = std(b2_draw);
+sigr2_sd = std(sigr2_draw);
+
+% CI
+q_a1 = quantile(z_draw(:,1),[0.025,0.975]);
+q_b1 = quantile(z_draw(:,2),[0.025,0.975]);
+q_a2 = quantile(a2_draw,[0.025,0.975]);
+q_b2 = quantile(b2_draw,[0.025,0.975]);
+q_sigr2 = quantile(sigr2_draw,[0.025,0.975]);
+
+% Create a table for State equation
+V1 = [a1_h b1_h sigr2_h a1_sd b1_sd sigr2_sd...
+    {q_a1} {q_b1} {q_sigr2}];
+V1 =reshape(V1,3,3);
+col_names = {'Mean', 'Std', 'Credible Interval'};
+row_names = {'a1','b1','sigr2'};
+V1 = array2table(V1,'RowNames', row_names, 'VariableNames', col_names);
+writetable(V1,  "State Equation Parameters.csv")
+
+%% Observation Equation
+Sig11 = zeros(nsim,1);
+Sig22 = zeros(nsim,1);
+Sig33 = zeros(nsim,1);
+Sig44 = zeros(nsim,1);
+Sig13 = zeros(nsim,1);
+Sig12 = zeros(nsim,1);
+Sig14 = zeros(nsim,1);
+Sig23 = zeros(nsim,1);
+Sig24 = zeros(nsim,1);
+Sig34 = zeros(nsim,1);
+
+% p
+corr12 = zeros(nsim,1);
+corr13 = zeros(nsim,1);
+corr14 = zeros(nsim,1);
+corr23 = zeros(nsim,1);
+corr24 = zeros(nsim,1);
+corr34 = zeros(nsim,1);
+
+for i=1:nsim
+    %var
+    Sig11(i)=Sig_draw(i,1,1);
+    Sig12(i)=Sig_draw(i,1,2);
+    Sig13(i)=Sig_draw(i,1,3);
+    Sig14(i)=Sig_draw(i,1,4);
+    Sig22(i)=Sig_draw(i,2,2);
+    Sig23(i)=Sig_draw(i,2,3);
+    Sig24(i)=Sig_draw(i,2,4);
+    Sig33(i)=Sig_draw(i,3,3);
+    Sig34(i)=Sig_draw(i,3,4);
+    Sig44(i)=Sig_draw(i,4,4);
+    % p 
+    corr12(i)=Sig12(i)/sqrt(Sig11(i)*Sig22(i));
+    corr13(i)=Sig13(i)/sqrt(Sig11(i)*Sig33(i));
+    corr14(i)=Sig14(i)/sqrt(Sig11(i)*Sig44(i));
+    corr23(i)=Sig23(i)/sqrt(Sig22(i)*Sig33(i));
+    corr24(i)=Sig24(i)/sqrt(Sig22(i)*Sig44(i));
+    corr34(i)=Sig34(i)/sqrt(Sig33(i)*Sig44(i));
+end
+
+% Mean 
+Sig11_h  = mean(Sig11); Sig22_h = mean(Sig22); Sig33_h = mean(Sig33);
+Sig44_h = mean(Sig44);
+
+corr12_h = mean(corr12); corr13_h = mean(corr13);corr14_h = mean(corr14);
+corr23_h = mean(corr23);corr24_h = mean(corr24);corr34_h = mean(corr34);
+
+% Std 
+Sig11_sd  = std(Sig11); Sig22_sd = std(Sig22); Sig33_sd = std(Sig33);
+Sig44_sd = std(Sig44);
+
+corr12_sd = std(corr12); corr13_sd = std(corr13);corr14_sd = std(corr14);
+corr23_sd = std(corr23);corr24_sd = std(corr24);corr34_sd = std(corr34);
+
+% CI  
+q_Sig11 = quantile(Sig11,[0.025,0.975]);q_corr12 = quantile(corr12,[0.025,0.975]);
+q_corr13 = quantile(corr13,[0.025,0.975]);q_corr14 = quantile(corr14,[0.025,0.975]);
+q_Sig22 = quantile(Sig22,[0.025,0.975]);q_corr23 = quantile(corr23,[0.025,0.975]);
+q_corr24 = quantile(corr24,[0.025,0.975]);q_Sig33 = quantile(Sig33,[0.025,0.975]);
+q_Sig44 = quantile(Sig44,[0.025,0.975]);q_corr34 = quantile(corr34,[0.025,0.975]);
+% Create a table
+V2 = [a2_h b2_h Sig11_h Sig22_h Sig33_h Sig44_h corr12_h corr13_h corr14_h...
+    corr23_h corr24_h corr34_h a2_sd b2_sd Sig11_sd Sig22_sd Sig33_sd Sig44_sd...
+    corr12_sd corr13_sd corr14_sd corr23_sd corr24_sd...
+    corr34_sd {q_a2} {q_b2} {q_Sig11} {q_Sig22} {q_Sig33} {q_Sig44} {q_corr12} {q_corr13}...
+    {q_corr14} {q_corr23} {q_corr24} {q_corr34}];
+V2=reshape(V2,12,3);
+col_names = {'Mean', 'Std', 'Credible Interval'};
+row_names = {'a2','b2','Sig11', 'Sig22','Sig33','Sig44','corr12','corr13'...
+    ,'corr14','corr23','corr24','corr34'};
+V2 = array2table(V2,'RowNames', row_names, 'VariableNames', col_names);
+writetable(V2,  "Observation Equation Parameters.csv")
+
+%% Draw the short rate and real data
+Z = mean(K, 1);
+figure(16)
+hold on
+plot(Y(:, 1), 'Color', 'b', 'LineWidth', 1)
+plot(Y(:, 2), 'Color', 'g', 'LineWidth', 1)
+plot(Y(:, 3), 'Color', 'r', 'LineWidth', 1)
+plot(Y(:, 4), 'Color', 'm', 'LineWidth', 1)
+plot(Z, 'Color', 'k', 'LineWidth', 2)
+ylabel('%')
+
+legend('1 month T-bills', '3 month T-bills', '6 month T-bills', ...
+    '1 year T-bills', 'Latent short rate')
+
+hold off
+
+%% Average acceptance for b2 and sigr2
+% b2
+f1 = f(1251:6250);
+k1 = sum(f1)/nsim;
+figure(17)
+hold on
+plot(cumsum(f1)./(1:nsim)','k-')
+ylabel('Acceptance rate')
+plot((1:nsim)',k1*ones(nsim,1),'r-')
+hold off
+legend('Sequential AAR','Overall AAR','location','southeast');
+set(gca,'fontsize',12);
+ylim([0.2,0.4])
+title('$b_2$','Interpreter','latex','Color','blue','FontWeight','bold')
+% sigr2
+g1 = g(1251:6250);
+k2 = sum(g1)/nsim;
+figure(18)
+hold on
+plot(cumsum(g1)./(1:nsim)','k-')
+ylabel('Acceptance rate')
+plot((1:nsim)',k2*ones(nsim,1),'r-')
+hold off
+legend('Sequential AAR','Overall AAR','location','southeast');
+set(gca,'fontsize',12);
+ylim([0,0.3])
+title('$\sigma_{r}^{2}$','Interpreter','latex','Color','blue','FontWeight','bold')
+
+
+%%  %%%% Posterior MCMC trace plots
+%% Main parameters
+% Observation equation
+figure(1)
+subplot(2,1,1)
+plot(a2_draw)
+ylabel('$a_2$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,1,2)
+plot(b2_draw)
+ylabel('$b_2$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Mean and Speed of Reversion',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+% State equation
+figure(2)
+subplot(3,1,1)
+plot(z_draw(:,1))
+ylabel('$a_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot(z_draw(:,2))
+ylabel('$b_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot(sigr2_draw)
+ylabel('$\sigma_{r}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+%% Var-Covar Parameters
+figure(3)
+subplot(4,1,1)
+plot(Sig11)
+ylabel('$\sigma_{1}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,2)
+plot(Sig22)
+ylabel('$\sigma_{2}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,3)
+plot(Sig33)
+ylabel('$\sigma_{3}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,4)
+plot(Sig44)
+ylabel('$\sigma_{4}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+
+figure(4)
+subplot(3,1,1)
+plot((corr12))
+ylabel('$\rho_{12}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot((corr13))
+ylabel('$\rho_{13}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot((corr14))
+ylabel('$\rho_{14}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+figure(5)
+subplot(3,1,1)
+plot((corr23))
+ylabel('$\rho_{23}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot((corr24))
+ylabel('$\rho_{24}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot((corr34))
+ylabel('$\rho_{34}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+%%  %%%% Histogram MCMC
+%% Main parameters
+% Observation equation
+figure(6)
+subplot(2,1,1)
+histogram(a2_draw,100)
+ylabel('$a_2$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,1,2)
+histogram(b2_draw,100)
+ylabel('$b_2$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Mean and Speed of Reversion',...
+    'Color', 'blue', 'FontWeight','bold')
+% State equation
+figure(7)
+subplot(3,1,1)
+histogram(z_draw(:,1),100)
+ylabel('$a_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+histogram(z_draw(:,2),100)
+ylabel('$b_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+histogram(sigr2_draw,100)
+ylabel('$\sigma_{r}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+%% Var-Covar Parameters
+figure(8)
+subplot(2,2,1)
+histogram(Sig11,100)
+ylabel('$\sigma_{1}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,2,2)
+histogram(Sig22,100)
+ylabel('$\sigma_{2}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,2,3)
+histogram(Sig33,100)
+ylabel('$\sigma_{3}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,2,4)
+histogram(Sig44,100)
+ylabel('$\sigma_{4}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+figure(9)
+subplot(3,1,1)
+histogram((corr12),100)
+ylabel('$\rho_{12}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+histogram((corr13),100)
+ylabel('$\rho_{13}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+histogram((corr14),100)
+ylabel('$\rho_{14}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+figure(10)
+subplot(3,1,1)
+histogram((corr23),100)
+ylabel('$\rho_{23}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+histogram((corr24),100)
+ylabel('$\rho_{24}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+histogram((corr34),100)
+ylabel('$\rho_{34}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+%%  %%%% Posterior Sequential MCMC plot
+%% Main parameters
+% Observe equation
+figure(11)
+subplot(2,1,1)
+plot(cumsum(a2_draw)./(1:nsim)')
+ylabel('$a_2$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(2,1,2)
+plot(cumsum(b2_draw)./(1:nsim)')
+ylabel('$b_2$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Mean and Speed of Reversion',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+% State equation
+figure(12)
+subplot(3,1,1)
+plot(cumsum(z_draw(:,1))./(1:nsim)')
+ylabel('$a_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot(cumsum(z_draw(:,2))./(1:nsim)')
+ylabel('$b_1$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot(cumsum(sigr2_draw)./(1:nsim)')
+ylabel('$\sigma_{r}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+%% Var-Covar Parameters
+figure(13)
+subplot(4,1,1)
+plot(cumsum(Sig11)./(1:nsim)')
+ylabel('$\sigma_{1}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,2)
+plot(cumsum(Sig22)./(1:nsim)')
+ylabel('$\sigma_{2}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,3)
+plot(cumsum(Sig33)./(1:nsim)')
+ylabel('$\sigma_{3}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(4,1,4)
+plot(cumsum(Sig44)./(1:nsim)')
+ylabel('$\sigma_{4}^{2}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Variance',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+
+figure(14)
+subplot(3,1,1)
+plot(cumsum((corr12))./(1:nsim)')
+ylabel('$\rho_{12}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot(cumsum((corr13))./(1:nsim)')
+ylabel('$\rho_{13}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot(cumsum((corr14))./(1:nsim)')
+ylabel('$\rho_{14}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
+
+figure(15)
+subplot(3,1,1)
+plot(cumsum((corr23))./(1:nsim)')
+ylabel('$\rho_{23}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,2)
+plot(cumsum((corr24))./(1:nsim)')
+ylabel('$\rho_{24}$','interpreter','latex')
+set(gca,'fontsize',12);
+subplot(3,1,3)
+plot(cumsum((corr34))./(1:nsim)')
+ylabel('$\rho_{34}$','interpreter','latex')
+set(gca,'fontsize',12);
+sgtitle('Observation Equation: Correlation',...
+    'Color', 'blue', 'FontWeight', 'bold')
