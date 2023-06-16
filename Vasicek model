@@ -316,7 +316,7 @@ hold off
 legend('Sequential AAR','Overall AAR','location','southeast');
 set(gca,'fontsize',12);
 ylim([0.2,0.4])
-title('$b_2$','Interpreter','latex','Color','blue','FontWeight','bold')
+title('$b_2$','Interpreter','latex')
 % sigr2
 g1 = g(1251:6250);
 k2 = sum(g1)/nsim;
@@ -329,7 +329,7 @@ hold off
 legend('Sequential AAR','Overall AAR','location','southeast');
 set(gca,'fontsize',12);
 ylim([0,0.3])
-title('$\sigma_{r}^{2}$','Interpreter','latex','Color','blue','FontWeight','bold')
+title('$\sigma_{r}^{2}$','Interpreter','latex')
 
 
 %%  %%%% Posterior MCMC trace plots
@@ -344,8 +344,7 @@ subplot(2,1,2)
 plot(b2_draw)
 ylabel('$b_2$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Mean and Speed of Reversion',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Mean and Speed of Reversion')
 
 % State equation
 figure(2)
@@ -361,8 +360,7 @@ subplot(3,1,3)
 plot(sigr2_draw)
 ylabel('$\sigma_{r}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('State Equation: Mean, Speed of Reversion and Variance')
 
 %% Var-Covar Parameters
 figure(3)
@@ -382,8 +380,7 @@ subplot(4,1,4)
 plot(Sig44)
 ylabel('$\sigma_{4}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Variance')
 
 
 figure(4)
@@ -399,8 +396,7 @@ subplot(3,1,3)
 plot((corr14))
 ylabel('$\rho_{14}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
 
 figure(5)
 subplot(3,1,1)
@@ -415,8 +411,8 @@ subplot(3,1,3)
 plot((corr34))
 ylabel('$\rho_{34}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
+   
 
 %%  %%%% Histogram MCMC
 %% Main parameters
@@ -446,8 +442,8 @@ subplot(3,1,3)
 histogram(sigr2_draw,100)
 ylabel('$\sigma_{r}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('State Equation: Mean, Speed of Reversion and Variance')
+   
 %% Var-Covar Parameters
 figure(8)
 subplot(2,2,1)
@@ -466,8 +462,8 @@ subplot(2,2,4)
 histogram(Sig44,100)
 ylabel('$\sigma_{4}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Variance')
+    
 figure(9)
 subplot(3,1,1)
 histogram((corr12),100)
@@ -481,8 +477,8 @@ subplot(3,1,3)
 histogram((corr14),100)
 ylabel('$\rho_{14}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
+  
 
 figure(10)
 subplot(3,1,1)
@@ -497,8 +493,8 @@ subplot(3,1,3)
 histogram((corr34),100)
 ylabel('$\rho_{34}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
+   
 
 %%  %%%% Posterior Sequential MCMC plot
 %% Main parameters
@@ -512,8 +508,8 @@ subplot(2,1,2)
 plot(cumsum(b2_draw)./(1:nsim)')
 ylabel('$b_2$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Mean and Speed of Reversion',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Mean and Speed of Reversion')
+   
 
 % State equation
 figure(12)
@@ -529,8 +525,8 @@ subplot(3,1,3)
 plot(cumsum(sigr2_draw)./(1:nsim)')
 ylabel('$\sigma_{r}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('State Equation: Mean, Speed of Reversion and Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('State Equation: Mean, Speed of Reversion and Variance')
+   
 
 %% Var-Covar Parameters
 figure(13)
@@ -550,8 +546,8 @@ subplot(4,1,4)
 plot(cumsum(Sig44)./(1:nsim)')
 ylabel('$\sigma_{4}^{2}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Variance',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Variance')
+   
 
 
 figure(14)
@@ -567,8 +563,8 @@ subplot(3,1,3)
 plot(cumsum((corr14))./(1:nsim)')
 ylabel('$\rho_{14}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
+ 
 
 figure(15)
 subplot(3,1,1)
@@ -583,5 +579,5 @@ subplot(3,1,3)
 plot(cumsum((corr34))./(1:nsim)')
 ylabel('$\rho_{34}$','interpreter','latex')
 set(gca,'fontsize',12);
-sgtitle('Observation Equation: Correlation',...
-    'Color', 'blue', 'FontWeight', 'bold')
+sgtitle('Observation Equation: Correlation')
+  
